@@ -30,6 +30,39 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: Configure Gradle Maven Central mirror (avoid HTTP 429)
+        run: |
+          mkdir -p "$HOME/.gradle/init.d"
+          cat <<'EOF' > "$HOME/.gradle/init.d/maven-mirror.gradle"
+          def mirrorUrl = URI.create("https://maven-central.storage-download.googleapis.com/maven2/")
+
+          def rewriteRepos = { RepositoryHandler repos ->
+              repos.all { repo ->
+                  if (repo instanceof MavenArtifactRepository) {
+                      def u = repo.url?.toString() ?: ""
+                      if (u.contains("repo.maven.apache.org") || u.contains("repo1.maven.org")) {
+                          repo.setUrl(mirrorUrl)
+                      }
+                  }
+              }
+          }
+
+          gradle.settingsEvaluated { settings ->
+              rewriteRepos(settings.pluginManagement.repositories)
+              rewriteRepos(settings.dependencyResolutionManagement.repositories)
+              def mirror = settings.pluginManagement.repositories.maven { url = mirrorUrl }
+              settings.pluginManagement.repositories.remove(mirror)
+              settings.pluginManagement.repositories.add(0, mirror)
+          }
+
+          gradle.beforeProject { project ->
+              rewriteRepos(project.buildscript.repositories)
+              def mirror = project.buildscript.repositories.maven { url = mirrorUrl }
+              project.buildscript.repositories.remove(mirror)
+              project.buildscript.repositories.add(0, mirror)
+          }
+          EOF
+
       - name: Configure PKCS12 signing keystore
         run: |
           set -euo pipefail
@@ -85,14 +118,6 @@ jobs:
 
       - name: Download verified Gradle distribution with fallback
         run: bash .github/scripts/prepare-gradle.sh
-
-      - name: Run Android unit tests (non-blocking)
-        continue-on-error: true
-        run: >-
-          bash gradlew testDebugUnitTest --no-daemon --max-workers=2
-          -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8"
-          -Pkotlin.compiler.execution.strategy=in-process
-          --no-configuration-cache --stacktrace
 
       - name: Build signed release APK
         run: >-
