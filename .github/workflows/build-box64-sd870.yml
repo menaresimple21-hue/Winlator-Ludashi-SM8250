@@ -1,0 +1,78 @@
+name: Build Box64 SD870 (Mi 11X)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-box64:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build git xz-utils binutils
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27c
+          add-to-path: false
+
+      - name: Clone Box64 (ptitSeb + Pipetto Bionic)
+        run: |
+          git clone https://github.com/ptitSeb/box64 source
+          cd source
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git remote add pipetto https://github.com/Pipetto-crypto/box64
+          git fetch --depth=1 pipetto main || true
+          if ! git merge pipetto/main --no-edit; then
+            echo "Hybrid merge conflicted; falling back to upstream ptitSeb/box64"
+            git merge --abort || true
+          fi
+
+      - name: Compile for Cortex-A77 (SD870 + BAD_SIGNAL)
+        env:
+          NDK_BIN: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+        run: |
+          mkdir build && cd build
+          cmake ../source -G Ninja \
+            -DCMAKE_C_COMPILER=${NDK_BIN}/aarch64-linux-android31-clang \
+            -DCMAKE_C_FLAGS="-mcpu=cortex-a77 -pipe" \
+            -DANDROID=1 \
+            -DBIONIC=1 \
+            -DARM_DYNAREC=1 \
+            -DBAD_SIGNAL=1 \
+            -DTERMUX=0 \
+            -DHAVE_TRACE=0 \
+            -DCMAKE_BUILD_TYPE=Release
+          ninja -j$(nproc)
+          readelf -d box64 | grep -q "NEEDED.*libc.so"
+          ${NDK_BIN}/llvm-strip box64
+
+      - name: Package .wcp
+        run: |
+          cd build
+          COMMIT=$(git -C ../source rev-parse --short HEAD)
+          VER="box64-mi11x-sd870-${COMMIT}"
+          cat <<EOF > profile.json
+          {
+            "type": "Box64",
+            "versionName": "${VER}",
+            "versionCode": 0,
+            "description": "Box64 Bionic (-mcpu=cortex-a77, BAD_SIGNAL=1) for Mi 11X SD870",
+            "files": [{"source": "box64", "target": "\${bindir}/box64"}]
+          }
+          EOF
+          mkdir pkg && cp box64 profile.json pkg/
+          cd pkg
+          tar -cf "../${VER}.tar" .
+          xz -9 -c "../${VER}.tar" > "../${VER}.wcp"
+
+      - name: Upload .wcp Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: box64-mi11x-sd870
+          path: build/*.wcp
+          if-no-files-found: error
