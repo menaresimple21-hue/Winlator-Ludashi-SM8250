@@ -161,18 +161,19 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.winlator.cmod"
+        applicationId "com.winlator.mi11x"
         minSdkVersion 28
         // We’re preserving Winlator’s request to keep targetSdkVersion at 28
         targetSdkVersion 28
 
         versionCode 67
-        versionName "5.0"
+        versionName "5.0-mi11x"
 
-        // External native build from Winlator
+        // External native build from Winlator (tuned for Snapdragon 870 Cortex-A77)
         externalNativeBuild {
             cmake {
-                cppFlags ''
+                cFlags '-mcpu=cortex-a77 -O3'
+                cppFlags '-mcpu=cortex-a77 -O3'
             }
         }
 
