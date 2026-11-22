@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - "mi11x-sd870"
+      - "Winlator-Ludashi-SM8250"
 
 permissions:
   contents: read
